@@ -66,6 +66,7 @@ var (
 	disableDocker            bool
 	disableQueue             bool
 	enableFileUpload         bool
+	ingvar                   bool
 	listen                   string
 	timeout                  time.Duration
 	maxTimeout               time.Duration
@@ -120,11 +121,18 @@ func init() {
 	flag.StringVar(&videoOutputDir, "video-output-dir", "video", "Directory to save recorded video to")
 	flag.StringVar(&videoRecorderImage, "video-recorder-image", "selenoid/video-recorder", "Image to use as video recorder")
 	flag.StringVar(&logOutputDir, "log-output-dir", "", "Directory to save session log to")
+	flag.BoolVar(&ingvar, "ingvar", false, "ingvar test")
 	flag.Parse()
 
 	if version {
 		showVersion()
 		os.Exit(0)
+	}
+
+	if ingvar {
+		fmt.Println("ingvaaaar")
+		os.Exit(0)
+
 	}
 
 	var err error

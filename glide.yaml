@@ -1,0 +1,4 @@
+package: github.com/Lil-Smile/selenoid # e.g. github.com/foo/bar
+import:
+- package: github.com/openshift/client-go
+  #version: xxx #you can specify the version if needed
