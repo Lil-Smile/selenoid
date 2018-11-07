@@ -41,14 +41,14 @@ func (op *Openshift) StartWithCancel() (*StartedService, error) {
 	//ctx := context.Background()
 	log.Printf("[%d] [CREATING_CONTAINER] [%s]", requestId, image)
 	buildRequest := v1.BuildRequest{}
-
-	u := &url.URL{Scheme: "http", Host: selenium.Port(), Path: op.Service.Path}
-
+	buildRequest.TriggeredBy = append(buildRequest.TriggeredBy, v1.BuildTriggerCause{ImageChangeBuild:&v1.ImageChangeCause{ImageID:image.(string),}})
+	log.Printf("[%d] [CREATING_CONTAINER] [%v]", requestId, buildRequest.TriggeredBy)
+	u := &url.URL{Scheme: "http", Host: "localhost:4444", Path: op.Service.Path}
 	s := StartedService{
 		Url:u,
 		Container: &session.Container{
 			ID:        string(buildRequest.UID),
-			IPAddress: "127.0.0.1",
+			IPAddress: "openshift.netcracker.cloud:8443",
 		},
 		HostPort: session.HostPort{
 			Selenium:selenium.Port(),

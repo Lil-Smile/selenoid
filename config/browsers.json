@@ -14,7 +14,7 @@
 		"default": "latest",
 		"versions": {
 			"latest": {
-				"image": "selenoid/chrome",
+				"image": "artifactorycn.netcracker.com:17028/atp/browsers/vnc-chrome:69.0",
 				"port": "4444",
 				"tmpfs": {"/tmp":"size=512m"}
 			}

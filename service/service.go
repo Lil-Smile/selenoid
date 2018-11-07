@@ -80,7 +80,7 @@ func (m *DefaultManager) Find(caps session.Caps, requestId uint64) (Starter, boo
 		if m.OClient == nil {
 			return nil, false
 		}
-		log.Printf("[%d] [USING_DOCKER] [%s] [%s]", requestId, browserName, version)
+		log.Printf("[%d] [USING_OPENSHIFT] [%s] [%s]", requestId, browserName, version)
 		return &Openshift{
 			ServiceBase: serviceBase,
 			Environment: *m.Environment,
