@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aerokube/selenoid/config"
+	"github.com/lil-smile/selenoid/config"
 
 	"encoding/json"
 	"path/filepath"

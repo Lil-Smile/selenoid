@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"flag"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -21,13 +20,12 @@ import (
 
 	"path/filepath"
 
-	"github.com/aerokube/selenoid/config"
-	"github.com/aerokube/selenoid/protect"
-	"github.com/aerokube/selenoid/service"
-	"github.com/aerokube/selenoid/session"
-	"github.com/aerokube/selenoid/upload"
+	"github.com/lil-smile/selenoid/config"
+	"github.com/lil-smile/selenoid/protect"
+	"github.com/lil-smile/selenoid/service"
+	"github.com/lil-smile/selenoid/session"
+	"github.com/lil-smile/selenoid/upload"
 	"github.com/aerokube/util"
-	"github.com/aerokube/util/docker"
 	"github.com/docker/docker/client"
 )
 
@@ -69,6 +67,7 @@ var (
 	openshift                bool
 	namespace                string
 	buildName                string
+	buildConfig              string
 	listen                   string
 	timeout                  time.Duration
 	maxTimeout               time.Duration
@@ -123,24 +122,15 @@ func init() {
 	flag.StringVar(&videoOutputDir, "video-output-dir", "video", "Directory to save recorded video to")
 	flag.StringVar(&videoRecorderImage, "video-recorder-image", "selenoid/video-recorder", "Image to use as video recorder")
 	flag.StringVar(&logOutputDir, "log-output-dir", "", "Directory to save session log to")
-	flag.BoolVar(&openshift, "openshift", false, "ingvar test")
+	flag.BoolVar(&openshift, "openshift", false, "Is openshift")
 	flag.StringVar(&namespace, "namespace", "", "Openshift namespace")
 	flag.StringVar(&buildName, "buildName", "", "Openshift build name")
+	flag.StringVar(&buildConfig, "buildConfig", "", "Openshift build config")
 	flag.Parse()
 
 	if version {
 		showVersion()
 		os.Exit(0)
-	}
-
-	if openshift {
-		fmt.Println("openshift")
-		build, err := service.CreateBuild(namespace, buildName)
-		if err != nil {
-			fmt.Println("err:%s", err)
-		} else {
-			fmt.Println("build: %s", build.Name)
-		}
 	}
 
 	var err error
@@ -204,35 +194,17 @@ func init() {
 		LogOutputDir:        logOutputDir,
 		Privileged:          !disablePrivileged,
 	}
-	if disableDocker {
-		manager = &service.DefaultManager{Environment: &environment, Config: conf}
-		return
+
+	if openshift {
+		fmt.Println("openshift")
+		oClient, err := service.GetClient()
+		if err != nil {
+			log.Fatalf("Error: %v", err)
+		}
+		manager = &service.DefaultManager{Environment: &environment, Config: conf, OClient: oClient}
+
 	}
-	dockerHost := os.Getenv("DOCKER_HOST")
-	if dockerHost == "" {
-		dockerHost = client.DefaultDockerHost
-	}
-	u, err := client.ParseHostURL(dockerHost)
-	if err != nil {
-		log.Fatalf("[-] [INIT] [%v]", err)
-	}
-	ip, _, _ := net.SplitHostPort(u.Host)
-	environment.IP = ip
-	cli, err = docker.CreateCompatibleDockerClient(
-		func(specifiedApiVersion string) {
-			log.Printf("[-] [INIT] [Using Docker API version: %s]", specifiedApiVersion)
-		},
-		func(determinedApiVersion string) {
-			log.Printf("[-] [INIT] [Your Docker API version is %s]", determinedApiVersion)
-		},
-		func(defaultApiVersion string) {
-			log.Printf("[-] [INIT] [Did not manage to determine your Docker API version - using default version: %s]", defaultApiVersion)
-		},
-	)
-	if err != nil {
-		log.Fatalf("[-] [INIT] [New docker client: %v]", err)
-	}
-	manager = &service.DefaultManager{Environment: &environment, Client: cli, Config: conf}
+	return
 }
 
 func cancelOnSignal() {

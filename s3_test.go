@@ -5,8 +5,8 @@ package main
 import (
 	"context"
 	. "github.com/aandryashin/matchers"
-	"github.com/aerokube/selenoid/session"
-	"github.com/aerokube/selenoid/upload"
+	"github.com/lil-smile/selenoid/session"
+	"github.com/lil-smile/selenoid/upload"
 	"io/ioutil"
 	"net"
 	"net/http"

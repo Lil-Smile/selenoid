@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	. "github.com/aandryashin/matchers"
-	"github.com/aerokube/selenoid/config"
-	"github.com/aerokube/selenoid/session"
+	"github.com/lil-smile/selenoid/config"
+	"github.com/lil-smile/selenoid/session"
 )
 
 func configfile(s string) string {

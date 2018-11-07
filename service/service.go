@@ -7,9 +7,10 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/aerokube/selenoid/config"
-	"github.com/aerokube/selenoid/session"
+	"github.com/lil-smile/selenoid/config"
+	"github.com/lil-smile/selenoid/session"
 	"github.com/docker/docker/client"
+	buildv1 "github.com/openshift/client-go/build/clientset/versioned/typed/build/v1"
 )
 
 // Environment - all settings that influence browser startup
@@ -60,6 +61,7 @@ type Manager interface {
 type DefaultManager struct {
 	Environment *Environment
 	Client      *client.Client
+	OClient     *buildv1.BuildV1Client
 	Config      *config.Config
 }
 
@@ -75,16 +77,17 @@ func (m *DefaultManager) Find(caps session.Caps, requestId uint64) (Starter, boo
 	}
 	switch service.Image.(type) {
 	case string:
-		if m.Client == nil {
+		if m.OClient == nil {
 			return nil, false
 		}
 		log.Printf("[%d] [USING_DOCKER] [%s] [%s]", requestId, browserName, version)
-		return &Docker{
+		return &Openshift{
 			ServiceBase: serviceBase,
 			Environment: *m.Environment,
 			Caps:        caps,
-			Client:      m.Client,
-			LogConfig:   m.Config.ContainerLogs}, true
+			Client:      m.OClient,
+			//LogConfig:   m.Config.ContainerLogs}
+		}, true
 	case []interface{}:
 		log.Printf("[%d] [USING_DRIVER] [%s] [%s]", requestId, browserName, version)
 		return &Driver{ServiceBase: serviceBase, Environment: *m.Environment, Caps: caps}, true

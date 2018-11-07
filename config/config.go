@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/aerokube/selenoid/session"
+	"github.com/lil-smile/selenoid/session"
 	"github.com/docker/docker/api/types/container"
 	"time"
 )

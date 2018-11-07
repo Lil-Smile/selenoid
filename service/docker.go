@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/aerokube/selenoid/config"
-	"github.com/aerokube/selenoid/session"
+	"github.com/lil-smile/selenoid/config"
+	"github.com/lil-smile/selenoid/session"
 	"github.com/aerokube/util"
 	"github.com/docker/docker/api/types"
 	ctr "github.com/docker/docker/api/types/container"

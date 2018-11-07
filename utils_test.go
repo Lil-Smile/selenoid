@@ -16,8 +16,8 @@ import (
 	"testing"
 
 	. "github.com/aandryashin/matchers"
-	"github.com/aerokube/selenoid/service"
-	"github.com/aerokube/selenoid/session"
+	"github.com/lil-smile/selenoid/service"
+	"github.com/lil-smile/selenoid/session"
 	"github.com/pborman/uuid"
 )
 

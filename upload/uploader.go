@@ -1,7 +1,7 @@
 package upload
 
 import (
-	"github.com/aerokube/selenoid/session"
+	"github.com/lil-smile/selenoid/session"
 	"github.com/aerokube/util"
 	"log"
 	"time"

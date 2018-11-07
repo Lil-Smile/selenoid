@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aerokube/selenoid/session"
-	"github.com/aerokube/selenoid/upload"
+	"github.com/lil-smile/selenoid/session"
+	"github.com/lil-smile/selenoid/upload"
 	"github.com/aerokube/util"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/stdcopy"
@@ -171,6 +171,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 		queue.Drop()
 		return
 	}
+	fmt.Printf("getting started service")
 	startedService, err := starter.StartWithCancel()
 	if err != nil {
 		log.Printf("[%d] [SERVICE_STARTUP_FAILED] [%v]", requestId, err)
