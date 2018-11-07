@@ -33,15 +33,7 @@ func (op *Openshift) StartWithCancel() (*StartedService, error) {
 	return nil, nil
 }
 
-func main() {
-	err := start()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v", err)
-		os.Exit(1)
-	}
-}
-
-func start() error {
+func CreateBuild(namespace, buildName string) (*v1.Build, error) {
 	var kubeconfig *string
 	if home := homeDir(); home != "" {
 		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
@@ -53,19 +45,18 @@ func start() error {
 	// use the current context in kubeconfig
 	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	buildV1Client, err := buildv1.NewForConfig(config)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	namespace := "haowang"
 	// get all builds
 	builds, err := buildV1Client.Builds(namespace).List(metav1.ListOptions{})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fmt.Printf("There are %d builds in project %s\n", len(builds.Items), namespace)
 	// List names of all builds
@@ -74,12 +65,11 @@ func start() error {
 	}
 
 	// get a specific build
-	build := "cakephp-ex-1"
-	myBuild, err := buildV1Client.Builds(namespace).Get(build, metav1.GetOptions{})
+	myBuild, err := buildV1Client.Builds(namespace).Get(buildName, metav1.GetOptions{})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	fmt.Printf("Found build %s in namespace %s\n", build, namespace)
+	fmt.Printf("Found build %s in namespace %s\n", buildName, namespace)
 	fmt.Printf("Raw printout of the build %+v\n", myBuild)
 	// get details of the build
 	fmt.Printf("name %s, start time %s, duration (in sec) %.0f, and phase %s\n",
@@ -90,7 +80,7 @@ func start() error {
 	buildConfig := "cakephp-ex"
 	myBuildConfig, err := buildV1Client.BuildConfigs(namespace).Get(buildConfig, metav1.GetOptions{})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fmt.Printf("Found BuildConfig %s in namespace %s\n", myBuildConfig.Name, namespace)
 	buildRequest := v1.BuildRequest{}
@@ -105,10 +95,10 @@ func start() error {
 	myBuild, err = buildV1Client.BuildConfigs(namespace).Instantiate(buildConfig, &buildRequest)
 
 	if err != nil {
-		return err
+		return nil, err
 	}
 	fmt.Printf("Name of the triggered build %s\n", myBuild.Name)
-	return nil
+	return myBuild, nil
 }
 
 func homeDir() string {

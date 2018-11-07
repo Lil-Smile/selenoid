@@ -66,7 +66,9 @@ var (
 	disableDocker            bool
 	disableQueue             bool
 	enableFileUpload         bool
-	ingvar                   bool
+	openshift                bool
+	namespace                string
+	buildName                string
 	listen                   string
 	timeout                  time.Duration
 	maxTimeout               time.Duration
@@ -121,7 +123,9 @@ func init() {
 	flag.StringVar(&videoOutputDir, "video-output-dir", "video", "Directory to save recorded video to")
 	flag.StringVar(&videoRecorderImage, "video-recorder-image", "selenoid/video-recorder", "Image to use as video recorder")
 	flag.StringVar(&logOutputDir, "log-output-dir", "", "Directory to save session log to")
-	flag.BoolVar(&ingvar, "ingvar", false, "ingvar test")
+	flag.BoolVar(&openshift, "openshift", false, "ingvar test")
+	flag.StringVar(&namespace, "namespace", "", "Openshift namespace")
+	flag.StringVar(&buildName, "buildName", "", "Openshift build name")
 	flag.Parse()
 
 	if version {
@@ -129,10 +133,14 @@ func init() {
 		os.Exit(0)
 	}
 
-	if ingvar {
-		fmt.Println("ingvaaaar")
-		os.Exit(0)
-
+	if openshift {
+		fmt.Println("openshift")
+		build, err := service.CreateBuild(namespace, buildName)
+		if err != nil {
+			fmt.Println("err:%s", err)
+		} else {
+			fmt.Println("build: %s", build.Name)
+		}
 	}
 
 	var err error
