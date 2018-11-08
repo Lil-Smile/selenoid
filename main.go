@@ -204,6 +204,7 @@ func init() {
 		manager = &service.DefaultManager{Environment: &environment, Config: conf, OClient: oClient}
 
 	}
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	return
 }
 

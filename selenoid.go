@@ -171,7 +171,6 @@ func create(w http.ResponseWriter, r *http.Request) {
 		queue.Drop()
 		return
 	}
-	fmt.Printf("getting started service")
 	startedService, err := starter.StartWithCancel()
 	if err != nil {
 		log.Printf("[%d] [SERVICE_STARTUP_FAILED] [%v]", requestId, err)
@@ -195,6 +194,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 			if rsp != nil {
 				rsp.Body.Close()
 			}
+
 			switch ctx.Err() {
 			case context.DeadlineExceeded:
 				log.Printf("[%d] [SESSION_ATTEMPT_TIMED_OUT] [%s]", requestId, newSessionAttemptTimeout)

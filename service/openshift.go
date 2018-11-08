@@ -27,7 +27,6 @@ type Openshift struct {
 }
 
 func (op *Openshift) StartWithCancel() (*StartedService, error) {
-	fmt.Printf("stating openshift")
 	portConfig, err := getPortConfigOs(op.Service, op.Caps, op.Environment)
 	if err != nil {
 		return nil, fmt.Errorf("configuring ports: %v", err)
@@ -43,7 +42,7 @@ func (op *Openshift) StartWithCancel() (*StartedService, error) {
 	buildRequest := v1.BuildRequest{}
 	buildRequest.TriggeredBy = append(buildRequest.TriggeredBy, v1.BuildTriggerCause{ImageChangeBuild:&v1.ImageChangeCause{ImageID:image.(string),}})
 	log.Printf("[%d] [CREATING_CONTAINER] [%v]", requestId, buildRequest.TriggeredBy)
-	u := &url.URL{Scheme: "http", Host: "localhost:4444", Path: op.Service.Path}
+	u := &url.URL{Scheme: "https", Host: "openshift.netcracker.cloud:8443", Path: op.Service.Path}
 	s := StartedService{
 		Url:u,
 		Container: &session.Container{
