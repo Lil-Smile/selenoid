@@ -32,6 +32,10 @@ import (
 	"github.com/lil-smile/selenoid/upload"
 	buildv1 "github.com/openshift/client-go/build/clientset/versioned/typed/build/v1"
 	"golang.org/x/net/websocket"
+	"k8s.io/apimachinery/pkg/api/resource"
+	k8sv1 "k8s.io/api/core/v1"
+	v12 "github.com/openshift/api/apps/v1"
+	v13 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const slash = "/"
@@ -120,7 +124,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var browser struct {
-		Caps    session.Caps `json:"desiredCapabilities"`
+		Caps session.Caps `json:"desiredCapabilities"`
 		W3CCaps struct {
 			Caps session.Caps `json:"alwaysMatch"`
 		} `json:"capabilities"`
@@ -187,25 +191,30 @@ func create(w http.ResponseWriter, r *http.Request) {
 	i := 1
 	for ; ; i++ {
 		r.URL.Host, r.URL.Path = "https", "/oapi/v1/builds" //path.Join(u.Path, r.URL.Path, "/oapi/v1/builds")
-		buildBody := creteBuildBody(manager.GetOClient())
-		req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/oapi/v1/builds", bytes.NewReader(buildToByteArray(buildBody)))
-		req.Close = true
-		req = addHeaders(http.MethodPost, req)
+		//buildBody := creteBuildBody(manager.GetOClient())
+		//req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/api/v1/namespaces/atp-dt-testing/builds", bytes.NewReader(buildToByteArray(buildBody)))
+		//req.Close = true
+		//req = addHeaders(http.MethodPost, req)
 		//test just get
-		req2, _ := http.NewRequest(http.MethodGet, "https://openshift.netcracker.cloud:8443/oapi/v1/builds", nil)
-		req2.Close = true
-		req2 = addHeaders(http.MethodGet, req2)
+		//req2, _ := http.NewRequest(http.MethodGet, "https://openshift.netcracker.cloud:8443/api/v1/namespaces/atp-dt-testing/pods", nil)
+		//req2.Close = true
+		//req2 = addHeaders(http.MethodGet, req2)
+		//log.Printf("headers:%v", req2.Header.Get("Authorization"))
+		deplBody := createDeploymentConfigBody()
+		reqDepl, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/apis/extensions/v1beta1/namespaces/atp-dt-testing/deployments", bytes.NewReader(deplToByteArray(deplBody)))
+		//reqDepl, _ := http.NewRequest(http.MethodGet, "https://openshift.netcracker.cloud:8443/apis/extensions/v1beta1/namespaces/atp-dt-testing/deployments", nil)
+		reqDepl.Close = true
+		reqDepl = addHeaders(http.MethodPost, reqDepl)
 		ctx, done := context.WithTimeout(r.Context(), newSessionAttemptTimeout)
 		defer done()
 		log.Printf("[%d] [SESSION_ATTEMPTED] [%s] [%d]", requestId, u.String(), i)
 		//rsp, err := httpClient.Do(req.WithContext(ctx))
-		rsp, err := httpClient.Do(req2.WithContext(ctx))
+		rsp, err := httpClient.Do(reqDepl.WithContext(ctx))
 		select {
 		case <-ctx.Done():
 			if rsp != nil {
 				rsp.Body.Close()
 			}
-
 			switch ctx.Err() {
 			case context.DeadlineExceeded:
 				log.Printf("[%d] [SESSION_ATTEMPT_TIMED_OUT] [%s]", requestId, newSessionAttemptTimeout)
@@ -225,6 +234,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 		}
 		if err != nil {
 			if rsp != nil {
+				log.Printf("response: %v", rsp)
 				rsp.Body.Close()
 			}
 			log.Printf("[%d] [SESSION_FAILED] [%s] [%s]", requestId, u.String(), err)
@@ -347,9 +357,9 @@ var (
 )
 
 func addHeaders(method string, req *http.Request) *http.Request {
-	token := ""
+	token := "" //get from UI-console
 	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", "application/json;as=Table;v=v1beta1;g=meta.k8s.io, application/json")
 	if http.MethodPost == method {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -357,20 +367,42 @@ func addHeaders(method string, req *http.Request) *http.Request {
 }
 
 func creteBuildBody(client *buildv1.BuildV1Client) *v1.Build {
-	image := "artifactorycn.netcracker.com:17028/atp/browsers/vnc-chrome:69.0"
+	//image := "artifactorycn.netcracker.com:17028/atp/browsers/vnc-chrome:69.0"
+	image := "chrome"
 	buildRequest := v1.BuildRequest{}
 	buildRequest.TriggeredBy = append(buildRequest.TriggeredBy, v1.BuildTriggerCause{ImageChangeBuild: &v1.ImageChangeCause{ImageID: image}})
 	myBuild, _ := client.BuildConfigs(namespace).Instantiate(buildConfig, &buildRequest)
 	if myBuild.Spec.TriggeredBy == nil {
 		myBuild.Spec.TriggeredBy = append(myBuild.Spec.TriggeredBy, v1.BuildTriggerCause{ImageChangeBuild: &v1.ImageChangeCause{ImageID: image}})
 	}
+	if myBuild.Spec.Resources.Limits == nil {
+		myBuild.Spec.Resources.Limits = make(k8sv1.ResourceList)
+		myBuild.Spec.Resources.Limits["cpu"] = resource.MustParse("500m")
+		myBuild.Spec.Resources.Limits["memory"] = resource.MustParse("128Mi")
+	}
 	return myBuild
+}
+
+func createDeploymentConfigBody() v12.DeploymentConfig {
+	config := v12.DeploymentConfig{}
+	config.Kind = "Deployment"
+	config.APIVersion = "build.openshift.io/v1"
+	meta := v13.ObjectMeta{Name: "igor"}
+	config.ObjectMeta = meta
+	return config
 }
 
 func buildToByteArray(build *v1.Build) []byte {
 	var buff bytes.Buffer
 	enc := gob.NewEncoder(&buff)
 	enc.Encode(build)
+	return buff.Bytes()
+}
+
+func deplToByteArray(depl v12.DeploymentConfig) []byte {
+	var buff bytes.Buffer
+	enc := gob.NewEncoder(&buff)
+	enc.Encode(depl)
 	return buff.Bytes()
 }
 
