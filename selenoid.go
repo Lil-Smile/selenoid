@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/openshift/api/build/v1"
 	"io"
 	"io/ioutil"
 	"log"
@@ -23,11 +25,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lil-smile/selenoid/session"
-	"github.com/lil-smile/selenoid/upload"
 	"github.com/aerokube/util"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/lil-smile/selenoid/session"
+	"github.com/lil-smile/selenoid/upload"
+	buildv1 "github.com/openshift/client-go/build/clientset/versioned/typed/build/v1"
 	"golang.org/x/net/websocket"
 )
 
@@ -183,12 +186,20 @@ func create(w http.ResponseWriter, r *http.Request) {
 	var resp *http.Response
 	i := 1
 	for ; ; i++ {
-		r.URL.Host, r.URL.Path = u.Host, path.Join(u.Path, r.URL.Path)
-		req, _ := http.NewRequest(http.MethodPost, r.URL.String(), bytes.NewReader(body))
+		r.URL.Host, r.URL.Path = "https", "/oapi/v1/builds" //path.Join(u.Path, r.URL.Path, "/oapi/v1/builds")
+		buildBody := creteBuildBody(manager.GetOClient())
+		req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/oapi/v1/builds", bytes.NewReader(buildToByteArray(buildBody)))
+		req.Close = true
+		req = addHeaders(http.MethodPost, req)
+		//test just get
+		req2, _ := http.NewRequest(http.MethodGet, "https://openshift.netcracker.cloud:8443/oapi/v1/builds", nil)
+		req2.Close = true
+		req2 = addHeaders(http.MethodGet, req2)
 		ctx, done := context.WithTimeout(r.Context(), newSessionAttemptTimeout)
 		defer done()
 		log.Printf("[%d] [SESSION_ATTEMPTED] [%s] [%d]", requestId, u.String(), i)
-		rsp, err := httpClient.Do(req.WithContext(ctx))
+		//rsp, err := httpClient.Do(req.WithContext(ctx))
+		rsp, err := httpClient.Do(req2.WithContext(ctx))
 		select {
 		case <-ctx.Done():
 			if rsp != nil {
@@ -334,6 +345,34 @@ var (
 	fullFormat  = regexp.MustCompile(`^([0-9]+x[0-9]+)x(8|16|24)$`)
 	shortFormat = regexp.MustCompile(`^[0-9]+x[0-9]+$`)
 )
+
+func addHeaders(method string, req *http.Request) *http.Request {
+	token := ""
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	if http.MethodPost == method {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return req
+}
+
+func creteBuildBody(client *buildv1.BuildV1Client) *v1.Build {
+	image := "artifactorycn.netcracker.com:17028/atp/browsers/vnc-chrome:69.0"
+	buildRequest := v1.BuildRequest{}
+	buildRequest.TriggeredBy = append(buildRequest.TriggeredBy, v1.BuildTriggerCause{ImageChangeBuild: &v1.ImageChangeCause{ImageID: image}})
+	myBuild, _ := client.BuildConfigs(namespace).Instantiate(buildConfig, &buildRequest)
+	if myBuild.Spec.TriggeredBy == nil {
+		myBuild.Spec.TriggeredBy = append(myBuild.Spec.TriggeredBy, v1.BuildTriggerCause{ImageChangeBuild: &v1.ImageChangeCause{ImageID: image}})
+	}
+	return myBuild
+}
+
+func buildToByteArray(build *v1.Build) []byte {
+	var buff bytes.Buffer
+	enc := gob.NewEncoder(&buff)
+	enc.Encode(build)
+	return buff.Bytes()
+}
 
 func getScreenResolution(input string) (string, error) {
 	if input == "" {

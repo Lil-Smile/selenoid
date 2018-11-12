@@ -7,9 +7,9 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/docker/docker/client"
 	"github.com/lil-smile/selenoid/config"
 	"github.com/lil-smile/selenoid/session"
-	"github.com/docker/docker/client"
 	buildv1 "github.com/openshift/client-go/build/clientset/versioned/typed/build/v1"
 )
 
@@ -55,6 +55,7 @@ type Starter interface {
 // Manager - interface to choose appropriate starter
 type Manager interface {
 	Find(caps session.Caps, requestId uint64) (Starter, bool)
+	GetOClient() *buildv1.BuildV1Client
 }
 
 // DefaultManager - struct for default implementation
@@ -63,6 +64,10 @@ type DefaultManager struct {
 	Client      *client.Client
 	OClient     *buildv1.BuildV1Client
 	Config      *config.Config
+}
+
+func (m *DefaultManager) GetOClient() *buildv1.BuildV1Client {
+	return m.OClient
 }
 
 // Find - default implementation Manager interface

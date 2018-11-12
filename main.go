@@ -20,13 +20,13 @@ import (
 
 	"path/filepath"
 
+	"github.com/aerokube/util"
+	"github.com/docker/docker/client"
 	"github.com/lil-smile/selenoid/config"
 	"github.com/lil-smile/selenoid/protect"
 	"github.com/lil-smile/selenoid/service"
 	"github.com/lil-smile/selenoid/session"
 	"github.com/lil-smile/selenoid/upload"
-	"github.com/aerokube/util"
-	"github.com/docker/docker/client"
 )
 
 type memLimit int64
