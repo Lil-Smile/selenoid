@@ -360,7 +360,7 @@ var (
 )
 
 func addHeaders(method string, req *http.Request) *http.Request {
-	token := "DDpT1JxhdGTnIz0JliJZV2deKNsUJOhoFsvEB0xF9d0" //get from UI-console
+	token := "" //get from UI-console
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json;as=Table;v=v1beta1;g=meta.k8s.io, application/json")
 	if http.MethodPost == method {
