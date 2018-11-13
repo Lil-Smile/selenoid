@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
@@ -30,11 +31,11 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/lil-smile/selenoid/session"
 	"github.com/lil-smile/selenoid/upload"
+	v12 "github.com/openshift/api/apps/v1"
 	buildv1 "github.com/openshift/client-go/build/clientset/versioned/typed/build/v1"
 	"golang.org/x/net/websocket"
-	"k8s.io/apimachinery/pkg/api/resource"
 	k8sv1 "k8s.io/api/core/v1"
-	v12 "github.com/openshift/api/apps/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	v13 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -112,6 +113,7 @@ func getSerial() uint64 {
 }
 
 func create(w http.ResponseWriter, r *http.Request) {
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	sessionStartTime := time.Now()
 	requestId := serial()
 	user, remote := util.RequestInfo(r)
@@ -124,7 +126,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var browser struct {
-		Caps session.Caps `json:"desiredCapabilities"`
+		Caps    session.Caps `json:"desiredCapabilities"`
 		W3CCaps struct {
 			Caps session.Caps `json:"alwaysMatch"`
 		} `json:"capabilities"`
@@ -201,7 +203,8 @@ func create(w http.ResponseWriter, r *http.Request) {
 		//req2 = addHeaders(http.MethodGet, req2)
 		//log.Printf("headers:%v", req2.Header.Get("Authorization"))
 		deplBody := createDeploymentConfigBody()
-		reqDepl, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/apis/extensions/v1beta1/namespaces/atp-dt-testing/deployments", bytes.NewReader(deplToByteArray(deplBody)))
+		jsonBody, err := json.Marshal(deplBody)
+		reqDepl, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/apis/extensions/v1beta1/namespaces/atp-dt-testing/deployments", bytes.NewReader(jsonBody))
 		//reqDepl, _ := http.NewRequest(http.MethodGet, "https://openshift.netcracker.cloud:8443/apis/extensions/v1beta1/namespaces/atp-dt-testing/deployments", nil)
 		reqDepl.Close = true
 		reqDepl = addHeaders(http.MethodPost, reqDepl)
@@ -357,7 +360,7 @@ var (
 )
 
 func addHeaders(method string, req *http.Request) *http.Request {
-	token := "" //get from UI-console
+	token := "DDpT1JxhdGTnIz0JliJZV2deKNsUJOhoFsvEB0xF9d0" //get from UI-console
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json;as=Table;v=v1beta1;g=meta.k8s.io, application/json")
 	if http.MethodPost == method {
