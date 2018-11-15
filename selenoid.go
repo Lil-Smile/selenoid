@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
-	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -31,12 +30,18 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/lil-smile/selenoid/session"
 	"github.com/lil-smile/selenoid/upload"
-	v12 "github.com/openshift/api/apps/v1"
-	buildv1 "github.com/openshift/client-go/build/clientset/versioned/typed/build/v1"
+	appsV1 "github.com/openshift/api/apps/v1"
+	//buildv1 "github.com/openshift/client-go/build/clientset/versioned/typed/build/v1"
 	"golang.org/x/net/websocket"
 	k8sv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	v13 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/api/apps/v1beta1"
+	v12 "github.com/openshift/api/template/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	v14 "github.com/openshift/api/route/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"strconv"
 )
 
 const slash = "/"
@@ -126,7 +131,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var browser struct {
-		Caps    session.Caps `json:"desiredCapabilities"`
+		Caps session.Caps `json:"desiredCapabilities"`
 		W3CCaps struct {
 			Caps session.Caps `json:"alwaysMatch"`
 		} `json:"capabilities"`
@@ -193,27 +198,13 @@ func create(w http.ResponseWriter, r *http.Request) {
 	i := 1
 	for ; ; i++ {
 		r.URL.Host, r.URL.Path = "https", "/oapi/v1/builds" //path.Join(u.Path, r.URL.Path, "/oapi/v1/builds")
-		//build := creteBuildBody(manager.GetOClient())
-		//buildBody, err := json.Marshal(build)
-		//req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/apis/build.openshift.io/v1/namespaces/tadevelopment/builds", bytes.NewReader(buildBody))
-		//req.Close = true
-		//req = addHeaders(http.MethodPost, req)
-		//test just get
-		//req2, _ := http.NewRequest(http.MethodGet, "https://openshift.netcracker.cloud:8443/api/v1/namespaces/atp-dt-testing/pods", nil)
-		//req2.Close = true
-		//req2 = addHeaders(http.MethodGet, req2)
-		//log.Printf("headers:%v", req2.Header.Get("Authorization"))
-		//deplBody := createDeploymentConfigBody()
-		//jsonBody, err := json.Marshal(deplBody)
-		//reqDepl, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/apis/extensions/v1beta1/namespaces/tadevelopment/deployments", bytes.NewReader(jsonBody))
-		reqDepl, _ := http.NewRequest(http.MethodGet, "https://openshift.netcracker.cloud:8443/apis/extensions/v1beta1/namespaces/tadevelopment/deployments", nil)
-		reqDepl.Close = true
-		reqDepl = addHeaders(http.MethodGet, reqDepl)
+		req := createRequestDeploymentConfig()
+		requestDump, _ := httputil.DumpRequest(req, true)
+		log.Printf("request:%s", string(requestDump))
 		ctx, done := context.WithTimeout(r.Context(), newSessionAttemptTimeout)
 		defer done()
 		log.Printf("[%d] [SESSION_ATTEMPTED] [%s] [%d]", requestId, u.String(), i)
-		//rsp, err := httpClient.Do(req.WithContext(ctx))
-		rsp, err := httpClient.Do(reqDepl.WithContext(ctx))
+		rsp, err := httpClient.Do(req.WithContext(ctx))
 		select {
 		case <-ctx.Done():
 			if rsp != nil {
@@ -373,46 +364,164 @@ func addHeaders(method string, req *http.Request) *http.Request {
 	return req
 }
 
-func creteBuildBody(client *buildv1.BuildV1Client) *v1.Build {
-	//image := "artifactorycn.netcracker.com:17028/atp/browsers/vnc-chrome:69.0"
-	image := "chrome"
-	buildRequest := v1.BuildRequest{}
-	buildRequest.TriggeredBy = append(buildRequest.TriggeredBy, v1.BuildTriggerCause{ImageChangeBuild: &v1.ImageChangeCause{ImageID: image}})
-	myBuild, _ := client.BuildConfigs(namespace).Instantiate(buildConfig, &buildRequest)
-	if myBuild.Spec.TriggeredBy == nil {
-		myBuild.Spec.TriggeredBy = append(myBuild.Spec.TriggeredBy, v1.BuildTriggerCause{ImageChangeBuild: &v1.ImageChangeCause{ImageID: image}})
-	}
-	if myBuild.Spec.Resources.Limits == nil {
-		myBuild.Spec.Resources.Limits = make(k8sv1.ResourceList)
-		myBuild.Spec.Resources.Limits["cpu"] = resource.MustParse("500m")
-		myBuild.Spec.Resources.Limits["memory"] = resource.MustParse("128Mi")
-	}
-	myBuild.Kind = "Build"
-	myBuild.APIVersion = "build.openshift.io/v1"
-	return myBuild
+func creteBuildBody() v1.Build {
+	image := "artifactorycn.netcracker.com:17028/atp/browsers/vnc-chrome:69.0"
+	//image := "chrome"
+	build := v1.Build{}
+	build.Spec.TriggeredBy = append(build.Spec.TriggeredBy, v1.BuildTriggerCause{ImageChangeBuild: &v1.ImageChangeCause{ImageID: image}})
+	build.Spec.Resources.Limits = make(k8sv1.ResourceList)
+	build.Spec.Strategy = v1.BuildStrategy{Type: "Custom"}
+	build.Spec.Strategy.CustomStrategy = &v1.CustomBuildStrategy{}
+	build.Spec.Resources.Limits["cpu"] = resource.MustParse("500m")
+	build.Spec.Resources.Limits["memory"] = resource.MustParse("128Mi")
+	build.Kind = "Build"
+	build.APIVersion = "build.openshift.io/v1"
+	return build
 }
 
-func createDeploymentConfigBody() v12.DeploymentConfig {
-	config := v12.DeploymentConfig{}
+func createRequestDeployment() *http.Request {
+	body := createDeploymentBody()
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/apis/extensions/v1beta1/namespaces/tadevelopment/deployments", bytes.NewReader(jsonBody))
+	req.Close = true
+	req = addHeaders(http.MethodPost, req)
+	return req
+}
+
+func createRequestBuild() *http.Request {
+	body := creteBuildBody()
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/apis/build.openshift.io/v1/namespaces/tadevelopment/builds", bytes.NewReader(jsonBody))
+	req.Close = true
+	req = addHeaders(http.MethodPost, req)
+	return req
+}
+
+func createRequestDeploymentConfig() *http.Request {
+	body := createDeploymentConfigBody()
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/oapi/v1/namespaces/tadevelopment/deploymentconfigs", bytes.NewReader(jsonBody))
+	req.Close = true
+	req = addHeaders(http.MethodPost, req)
+	return req
+}
+
+func createRequestTemplate() *http.Request {
+	body := createTemplateBody()
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/apis/template.openshift.io/v1/namespaces/tadevelopment/processedtemplates", bytes.NewReader(jsonBody))
+	req.Close = true
+	req = addHeaders(http.MethodPost, req)
+	return req
+}
+
+func createDeploymentBody() v1beta1.Deployment {
+	config := v1beta1.Deployment{}
 	config.Kind = "Deployment"
 	config.APIVersion = "extensions/v1beta1"
 	meta := v13.ObjectMeta{Name: "igor"}
+	meta.Labels = make(map[string]string)
+	meta.Labels["app"] = "igor"
+	meta.Labels["name"] = "igor"
 	config.ObjectMeta = meta
+	tmpSelector := &v13.LabelSelector{}
+	tmpSelector.MatchLabels = make(map[string]string)
+	tmpSelector.MatchLabels["app"] = "igor"
+	tmpSelector.MatchLabels["name"] = "igor"
+	config.Spec.Selector = tmpSelector
+	config.Spec.Template.Spec = k8sv1.PodSpec{}
+	meta2 := v13.ObjectMeta{Name: "igor"}
+	meta2.Labels = make(map[string]string)
+	meta2.Labels["app"] = "igor"
+	meta2.Labels["name"] = "igor"
+	config.Spec.Template.ObjectMeta = meta2
+	limits := make(k8sv1.ResourceList)
+	limits["cpu"] = resource.MustParse("500m")
+	limits["memory"] = resource.MustParse("128Mi")
+	config.Spec.Template.Spec.Containers = []k8sv1.Container{{Name: "igor", Image: "artifactorycn.netcracker.com:17028/atp/browsers/vnc-chrome:69.0", Resources: k8sv1.ResourceRequirements{Limits: limits, Requests: limits}}}
 	return config
 }
 
-func buildToByteArray(build *v1.Build) []byte {
-	var buff bytes.Buffer
-	enc := gob.NewEncoder(&buff)
-	enc.Encode(build)
-	return buff.Bytes()
+func createServiceBody(placeholder string) k8sv1.Service {
+	service := k8sv1.Service{}
+	service.Kind = "Service"
+	service.APIVersion = "v1"
+	service.Spec = k8sv1.ServiceSpec{}
+	service.Spec.Ports = []k8sv1.ServicePort{}
+	service.Spec.Ports = append(service.Spec.Ports, k8sv1.ServicePort{Name: "web", Port: 8080, Protocol: "TCP"})
+	service.Spec.Ports = append(service.Spec.Ports, k8sv1.ServicePort{Name: "vnc", Port: 5900, Protocol: "TCP"})
+	service.Spec.Selector = make(map[string]string)
+	service.Spec.Selector["name"] = placeholder
+	service.Spec.Type = "NodePort"
+	return service
 }
 
-func deplToByteArray(depl v12.DeploymentConfig) []byte {
-	var buff bytes.Buffer
-	enc := gob.NewEncoder(&buff)
-	enc.Encode(depl)
-	return buff.Bytes()
+func createRouteBody(placeholder string) v14.Route {
+	route := v14.Route{}
+	route.Kind = "Route"
+	route.APIVersion = "v1"
+	route.Spec = v14.RouteSpec{}
+	route.Spec.Host=placeholder+".openshift.netcracker.cloud"
+	route.Spec.Port=&v14.RoutePort{TargetPort:intstr.IntOrString{StrVal:"web"}}
+	route.Spec.To=v14.RouteTargetReference{Kind:"Service", Name:placeholder}
+	return route
+}
+
+func createDeploymentConfigBody() appsV1.DeploymentConfig {
+	placeholder:="ingvar"
+	timeout,_ := strconv.ParseInt("600", 10, 64)
+	config := appsV1.DeploymentConfig{}
+	config.Kind = "DeploymentConfig"
+	config.APIVersion = "v1"
+	meta := v13.ObjectMeta{Name: placeholder}
+	meta.Labels = make(map[string]string)
+	meta.Labels["app"] = placeholder
+	meta.Labels["deploymentconfig"] = placeholder
+	meta.Labels["name"] = placeholder
+	config.ObjectMeta = meta
+	config.Spec = appsV1.DeploymentConfigSpec{}
+	config.Spec.Strategy = appsV1.DeploymentStrategy{Type:"Rolling", RecreateParams:&appsV1.RecreateDeploymentStrategyParams{TimeoutSeconds:&timeout}}
+	config.Spec.Triggers = appsV1.DeploymentTriggerPolicies{}
+	config.Spec.Triggers = append(config.Spec.Triggers, appsV1.DeploymentTriggerPolicy{Type:"ConfigChange"})
+	config.Spec.Replicas = 1
+	config.Spec.Selector = make(map[string]string)
+	config.Spec.Selector["app"] = placeholder
+	config.Spec.Selector["deploymentconfig"] = placeholder
+	config.Spec.Selector["name"] = placeholder
+	config.Spec.Template = &k8sv1.PodTemplateSpec{}
+	meta2 := v13.ObjectMeta{Name: "igor"}
+	meta2.Labels = make(map[string]string)
+	meta2.Labels["app"] = placeholder
+	meta2.Labels["deploymentconfig"] = placeholder
+	meta2.Labels["name"] = placeholder
+	config.Spec.Template.ObjectMeta = meta2
+	config.Spec.Template.Spec = k8sv1.PodSpec{}
+	limits := make(k8sv1.ResourceList)
+	limits["cpu"] = resource.MustParse("100m")
+	limits["memory"] = resource.MustParse("300Mi")
+	container :=k8sv1.Container{Name: placeholder, Image: "artifactorycn.netcracker.com:17028/atp/browsers/vnc-chrome:69.0", ImagePullPolicy:"Always", Resources: k8sv1.ResourceRequirements{Limits: limits, Requests: limits}}
+	container.Ports = []k8sv1.ContainerPort{{ContainerPort:8080, Name:"web", Protocol:"TCP"}}
+	container.Ports = append(container.Ports, k8sv1.ContainerPort{ContainerPort:5900, Name:"vnc", Protocol:"TCP"})
+	config.Spec.Template.Spec.Containers = []k8sv1.Container{container}
+	return config
+}
+
+func createTemplateBody() v12.Template {
+	placeholder:="ingvar"
+	template := v12.Template{}
+	template.APIVersion = "template.openshift.io/v1"
+	template.Kind = "Template"
+	template.Objects = []runtime.RawExtension{}
+	config := createDeploymentConfigBody()
+	configBytes, _ := json.Marshal(config)
+	template.Objects = append(template.Objects, runtime.RawExtension{Raw: configBytes})
+	service := createServiceBody(placeholder)
+	serviceBytes, _ := json.Marshal(service)
+	template.Objects = append(template.Objects, runtime.RawExtension{Raw: serviceBytes})
+	route := createRouteBody(placeholder)
+	routeBytes, _ := json.Marshal(route)
+	template.Objects = append(template.Objects, runtime.RawExtension{Raw: routeBytes})
+	return template
 }
 
 func getScreenResolution(input string) (string, error) {
