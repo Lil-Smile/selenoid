@@ -193,8 +193,9 @@ func create(w http.ResponseWriter, r *http.Request) {
 	i := 1
 	for ; ; i++ {
 		r.URL.Host, r.URL.Path = "https", "/oapi/v1/builds" //path.Join(u.Path, r.URL.Path, "/oapi/v1/builds")
-		//buildBody := creteBuildBody(manager.GetOClient())
-		//req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/api/v1/namespaces/atp-dt-testing/builds", bytes.NewReader(buildToByteArray(buildBody)))
+		//build := creteBuildBody(manager.GetOClient())
+		//buildBody, err := json.Marshal(build)
+		//req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/apis/build.openshift.io/v1/namespaces/tadevelopment/builds", bytes.NewReader(buildBody))
 		//req.Close = true
 		//req = addHeaders(http.MethodPost, req)
 		//test just get
@@ -202,12 +203,12 @@ func create(w http.ResponseWriter, r *http.Request) {
 		//req2.Close = true
 		//req2 = addHeaders(http.MethodGet, req2)
 		//log.Printf("headers:%v", req2.Header.Get("Authorization"))
-		deplBody := createDeploymentConfigBody()
-		jsonBody, err := json.Marshal(deplBody)
-		reqDepl, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/apis/extensions/v1beta1/namespaces/atp-dt-testing/deployments", bytes.NewReader(jsonBody))
-		//reqDepl, _ := http.NewRequest(http.MethodGet, "https://openshift.netcracker.cloud:8443/apis/extensions/v1beta1/namespaces/atp-dt-testing/deployments", nil)
+		//deplBody := createDeploymentConfigBody()
+		//jsonBody, err := json.Marshal(deplBody)
+		//reqDepl, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/apis/extensions/v1beta1/namespaces/tadevelopment/deployments", bytes.NewReader(jsonBody))
+		reqDepl, _ := http.NewRequest(http.MethodGet, "https://openshift.netcracker.cloud:8443/apis/extensions/v1beta1/namespaces/tadevelopment/deployments", nil)
 		reqDepl.Close = true
-		reqDepl = addHeaders(http.MethodPost, reqDepl)
+		reqDepl = addHeaders(http.MethodGet, reqDepl)
 		ctx, done := context.WithTimeout(r.Context(), newSessionAttemptTimeout)
 		defer done()
 		log.Printf("[%d] [SESSION_ATTEMPTED] [%s] [%d]", requestId, u.String(), i)
@@ -362,7 +363,10 @@ var (
 func addHeaders(method string, req *http.Request) *http.Request {
 	token := "" //get from UI-console
 	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/json;as=Table;v=v1beta1;g=meta.k8s.io, application/json")
+	//req.Header.Set("Accept", "application/json;as=Table;v=v1beta1;g=meta.k8s.io, application/json")
+	//to create build
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Connection", "close")
 	if http.MethodPost == method {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -383,13 +387,15 @@ func creteBuildBody(client *buildv1.BuildV1Client) *v1.Build {
 		myBuild.Spec.Resources.Limits["cpu"] = resource.MustParse("500m")
 		myBuild.Spec.Resources.Limits["memory"] = resource.MustParse("128Mi")
 	}
+	myBuild.Kind = "Build"
+	myBuild.APIVersion = "build.openshift.io/v1"
 	return myBuild
 }
 
 func createDeploymentConfigBody() v12.DeploymentConfig {
 	config := v12.DeploymentConfig{}
 	config.Kind = "Deployment"
-	config.APIVersion = "build.openshift.io/v1"
+	config.APIVersion = "extensions/v1beta1"
 	meta := v13.ObjectMeta{Name: "igor"}
 	config.ObjectMeta = meta
 	return config
