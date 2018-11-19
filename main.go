@@ -244,6 +244,8 @@ func onSIGHUP(fn func()) {
 func mux() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/session", queue.Try(queue.Check(queue.Protect(post(create)))))
+	mux.HandleFunc("/session/openshiftCreate", queue.Try(queue.Check(queue.Protect(post(openshiftCreate)))))
+	mux.HandleFunc("/session/openshiftDelete", queue.Try(queue.Check(queue.Protect(post(openshiftDelete)))))
 	mux.HandleFunc("/session/", proxy)
 	mux.HandleFunc("/status", status)
 	return mux

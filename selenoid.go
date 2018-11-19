@@ -31,15 +31,15 @@ import (
 	"github.com/lil-smile/selenoid/session"
 	"github.com/lil-smile/selenoid/upload"
 	appsV1 "github.com/openshift/api/apps/v1"
+	v14 "github.com/openshift/api/route/v1"
+	v12 "github.com/openshift/api/template/v1"
 	//buildv1 "github.com/openshift/client-go/build/clientset/versioned/typed/build/v1"
 	"golang.org/x/net/websocket"
+	"k8s.io/api/apps/v1beta1"
 	k8sv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	v13 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/api/apps/v1beta1"
-	v12 "github.com/openshift/api/template/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	v14 "github.com/openshift/api/route/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"strconv"
 )
@@ -117,11 +117,35 @@ func getSerial() uint64 {
 	return num
 }
 
+func openshiftCreate(w http.ResponseWriter, r *http.Request) {
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	rsp := createAllEntities("ingvar", r.Context())
+	if rsp != nil {
+		log.Printf("response: %v", rsp)
+		rsp.Body.Close()
+	}
+	util.JsonError(w, "result", http.StatusInternalServerError)
+	queue.Drop()
+	return
+}
+
+func openshiftDelete(w http.ResponseWriter, r *http.Request) {
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	rsp := deleteAllEntities("ingvar", r.Context())
+	if rsp != nil {
+		log.Printf("response: %v", rsp)
+		rsp.Body.Close()
+	}
+	util.JsonError(w, "result", http.StatusInternalServerError)
+	queue.Drop()
+	return
+}
+
 func create(w http.ResponseWriter, r *http.Request) {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	sessionStartTime := time.Now()
 	requestId := serial()
-	user, remote := util.RequestInfo(r)
+	user, _ := util.RequestInfo(r)
 	body, err := ioutil.ReadAll(r.Body)
 	r.Body.Close()
 	if err != nil {
@@ -131,7 +155,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var browser struct {
-		Caps session.Caps `json:"desiredCapabilities"`
+		Caps    session.Caps `json:"desiredCapabilities"`
 		W3CCaps struct {
 			Caps session.Caps `json:"alwaysMatch"`
 		} `json:"capabilities"`
@@ -198,35 +222,35 @@ func create(w http.ResponseWriter, r *http.Request) {
 	i := 1
 	for ; ; i++ {
 		r.URL.Host, r.URL.Path = "https", "/oapi/v1/builds" //path.Join(u.Path, r.URL.Path, "/oapi/v1/builds")
-		req := createRequestDeploymentConfig()
-		requestDump, _ := httputil.DumpRequest(req, true)
-		log.Printf("request:%s", string(requestDump))
-		ctx, done := context.WithTimeout(r.Context(), newSessionAttemptTimeout)
-		defer done()
-		log.Printf("[%d] [SESSION_ATTEMPTED] [%s] [%d]", requestId, u.String(), i)
-		rsp, err := httpClient.Do(req.WithContext(ctx))
-		select {
-		case <-ctx.Done():
-			if rsp != nil {
-				rsp.Body.Close()
-			}
-			switch ctx.Err() {
-			case context.DeadlineExceeded:
-				log.Printf("[%d] [SESSION_ATTEMPT_TIMED_OUT] [%s]", requestId, newSessionAttemptTimeout)
-				if i < retryCount {
-					continue
-				}
-				err := fmt.Errorf("New session attempts retry count exceeded")
-				log.Printf("[%d] [SESSION_FAILED] [%s] [%s]", requestId, u.String(), err)
-				util.JsonError(w, err.Error(), http.StatusInternalServerError)
-			case context.Canceled:
-				log.Printf("[%d] [CLIENT_DISCONNECTED] [%s] [%s] [%.2fs]", requestId, user, remote, util.SecondsSince(sessionStartTime))
-			}
-			queue.Drop()
-			cancel()
-			return
-		default:
-		}
+		//req := createRequestDeploymentConfig("ingvar")
+		//logRequest(req)
+		//ctx, done := context.WithTimeout(r.Context(), newSessionAttemptTimeout)
+		//defer done()
+		//log.Printf("[%d] [SESSION_ATTEMPTED] [%s] [%d]", requestId, u.String(), i)
+		//rsp, err := httpClient.Do(req.WithContext(ctx))
+		//select {
+		//case <-ctx.Done():
+		//	if rsp != nil {
+		//		rsp.Body.Close()
+		//	}
+		//	switch ctx.Err() {
+		//	case context.DeadlineExceeded:
+		//		log.Printf("[%d] [SESSION_ATTEMPT_TIMED_OUT] [%s]", requestId, newSessionAttemptTimeout)
+		//		if i < retryCount {
+		//			continue
+		//		}
+		//		err := fmt.Errorf("New session attempts retry count exceeded")
+		//		log.Printf("[%d] [SESSION_FAILED] [%s] [%s]", requestId, u.String(), err)
+		//		util.JsonError(w, err.Error(), http.StatusInternalServerError)
+		//	case context.Canceled:
+		//		log.Printf("[%d] [CLIENT_DISCONNECTED] [%s] [%s] [%.2fs]", requestId, user, remote, util.SecondsSince(sessionStartTime))
+		//	}
+		//	queue.Drop()
+		//	cancel()
+		//	return
+		//default:
+		//}
+		rsp := createAllEntities("ingvar", r.Context())
 		if err != nil {
 			if rsp != nil {
 				log.Printf("response: %v", rsp)
@@ -358,7 +382,7 @@ func addHeaders(method string, req *http.Request) *http.Request {
 	//to create build
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Connection", "close")
-	if http.MethodPost == method {
+	if http.MethodPost == method || http.MethodDelete == method {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	return req
@@ -388,6 +412,24 @@ func createRequestDeployment() *http.Request {
 	return req
 }
 
+func createRequestService(placeholder string) *http.Request {
+	body := createServiceBody(placeholder)
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/api/v1/namespaces/tadevelopment/services", bytes.NewReader(jsonBody))
+	req.Close = true
+	req = addHeaders(http.MethodPost, req)
+	return req
+}
+
+func createRequestRoute(placeholder string) *http.Request {
+	body := createRouteBody(placeholder)
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/apis/route.openshift.io/v1/namespaces/tadevelopment/routes", bytes.NewReader(jsonBody))
+	req.Close = true
+	req = addHeaders(http.MethodPost, req)
+	return req
+}
+
 func createRequestBuild() *http.Request {
 	body := creteBuildBody()
 	jsonBody, _ := json.Marshal(body)
@@ -397,8 +439,8 @@ func createRequestBuild() *http.Request {
 	return req
 }
 
-func createRequestDeploymentConfig() *http.Request {
-	body := createDeploymentConfigBody()
+func createRequestDeploymentConfig(placeholder string) *http.Request {
+	body := createDeploymentConfigBody(placeholder)
 	jsonBody, _ := json.Marshal(body)
 	req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/oapi/v1/namespaces/tadevelopment/deploymentconfigs", bytes.NewReader(jsonBody))
 	req.Close = true
@@ -413,6 +455,16 @@ func createRequestTemplate() *http.Request {
 	req.Close = true
 	req = addHeaders(http.MethodPost, req)
 	return req
+}
+
+func logRequest(request *http.Request) {
+	requestDump, _ := httputil.DumpRequest(request, true)
+	log.Printf("request:%s", string(requestDump))
+}
+
+func logResponse(response *http.Response) {
+	responseDump, _ := httputil.DumpResponse(response, true)
+	log.Printf("response:%s", string(responseDump))
 }
 
 func createDeploymentBody() v1beta1.Deployment {
@@ -446,6 +498,7 @@ func createServiceBody(placeholder string) k8sv1.Service {
 	service := k8sv1.Service{}
 	service.Kind = "Service"
 	service.APIVersion = "v1"
+	service.Name = placeholder
 	service.Spec = k8sv1.ServiceSpec{}
 	service.Spec.Ports = []k8sv1.ServicePort{}
 	service.Spec.Ports = append(service.Spec.Ports, k8sv1.ServicePort{Name: "web", Port: 8080, Protocol: "TCP"})
@@ -459,17 +512,17 @@ func createServiceBody(placeholder string) k8sv1.Service {
 func createRouteBody(placeholder string) v14.Route {
 	route := v14.Route{}
 	route.Kind = "Route"
-	route.APIVersion = "v1"
+	route.APIVersion = "route.openshift.io/v1"
+	route.Name = placeholder
 	route.Spec = v14.RouteSpec{}
-	route.Spec.Host=placeholder+".openshift.netcracker.cloud"
-	route.Spec.Port=&v14.RoutePort{TargetPort:intstr.IntOrString{StrVal:"web"}}
-	route.Spec.To=v14.RouteTargetReference{Kind:"Service", Name:placeholder}
+	route.Spec.Host = placeholder + ".openshift.netcracker.cloud"
+	route.Spec.Port = &v14.RoutePort{TargetPort: intstr.IntOrString{StrVal: "web", Type: intstr.String}}
+	route.Spec.To = v14.RouteTargetReference{Kind: "Service", Name: placeholder}
 	return route
 }
 
-func createDeploymentConfigBody() appsV1.DeploymentConfig {
-	placeholder:="ingvar"
-	timeout,_ := strconv.ParseInt("600", 10, 64)
+func createDeploymentConfigBody(placeholder string) appsV1.DeploymentConfig {
+	timeout, _ := strconv.ParseInt("600", 10, 64)
 	config := appsV1.DeploymentConfig{}
 	config.Kind = "DeploymentConfig"
 	config.APIVersion = "v1"
@@ -480,9 +533,9 @@ func createDeploymentConfigBody() appsV1.DeploymentConfig {
 	meta.Labels["name"] = placeholder
 	config.ObjectMeta = meta
 	config.Spec = appsV1.DeploymentConfigSpec{}
-	config.Spec.Strategy = appsV1.DeploymentStrategy{Type:"Rolling", RecreateParams:&appsV1.RecreateDeploymentStrategyParams{TimeoutSeconds:&timeout}}
+	config.Spec.Strategy = appsV1.DeploymentStrategy{Type: "Rolling", RecreateParams: &appsV1.RecreateDeploymentStrategyParams{TimeoutSeconds: &timeout}}
 	config.Spec.Triggers = appsV1.DeploymentTriggerPolicies{}
-	config.Spec.Triggers = append(config.Spec.Triggers, appsV1.DeploymentTriggerPolicy{Type:"ConfigChange"})
+	config.Spec.Triggers = append(config.Spec.Triggers, appsV1.DeploymentTriggerPolicy{Type: "ConfigChange"})
 	config.Spec.Replicas = 1
 	config.Spec.Selector = make(map[string]string)
 	config.Spec.Selector["app"] = placeholder
@@ -499,20 +552,20 @@ func createDeploymentConfigBody() appsV1.DeploymentConfig {
 	limits := make(k8sv1.ResourceList)
 	limits["cpu"] = resource.MustParse("100m")
 	limits["memory"] = resource.MustParse("300Mi")
-	container :=k8sv1.Container{Name: placeholder, Image: "artifactorycn.netcracker.com:17028/atp/browsers/vnc-chrome:69.0", ImagePullPolicy:"Always", Resources: k8sv1.ResourceRequirements{Limits: limits, Requests: limits}}
-	container.Ports = []k8sv1.ContainerPort{{ContainerPort:8080, Name:"web", Protocol:"TCP"}}
-	container.Ports = append(container.Ports, k8sv1.ContainerPort{ContainerPort:5900, Name:"vnc", Protocol:"TCP"})
+	container := k8sv1.Container{Name: placeholder, Image: "artifactorycn.netcracker.com:17028/atp/browsers/vnc-chrome:69.0", ImagePullPolicy: "Always", Resources: k8sv1.ResourceRequirements{Limits: limits, Requests: limits}}
+	container.Ports = []k8sv1.ContainerPort{{ContainerPort: 8080, Name: "web", Protocol: "TCP"}}
+	container.Ports = append(container.Ports, k8sv1.ContainerPort{ContainerPort: 5900, Name: "vnc", Protocol: "TCP"})
 	config.Spec.Template.Spec.Containers = []k8sv1.Container{container}
 	return config
 }
 
 func createTemplateBody() v12.Template {
-	placeholder:="ingvar"
+	placeholder := "ingvar"
 	template := v12.Template{}
 	template.APIVersion = "template.openshift.io/v1"
 	template.Kind = "Template"
 	template.Objects = []runtime.RawExtension{}
-	config := createDeploymentConfigBody()
+	config := createDeploymentConfigBody(placeholder)
 	configBytes, _ := json.Marshal(config)
 	template.Objects = append(template.Objects, runtime.RawExtension{Raw: configBytes})
 	service := createServiceBody(placeholder)
@@ -524,6 +577,99 @@ func createTemplateBody() v12.Template {
 	return template
 }
 
+func createAllEntities(placeholder string, ctx context.Context) *http.Response {
+	reqDeplConf := createRequestDeploymentConfig(placeholder)
+	logRequest(reqDeplConf)
+	ctx, done := context.WithTimeout(ctx, newSessionAttemptTimeout)
+	defer done()
+	rsp, err := httpClient.Do(reqDeplConf.WithContext(ctx))
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	} else {
+		logResponse(rsp)
+		if rsp.StatusCode == 201 || rsp.StatusCode == 200 {
+			reqService := createRequestService(placeholder)
+			logRequest(reqService)
+			rsp, err := httpClient.Do(reqService.WithContext(ctx))
+			if err != nil {
+				log.Fatalf("error: %v", err)
+			} else {
+				logResponse(rsp)
+				if rsp.StatusCode == 201 || rsp.StatusCode == 200 {
+					reqRoute := createRequestRoute(placeholder)
+					logRequest(reqRoute)
+					rsp, err := httpClient.Do(reqRoute.WithContext(ctx))
+					if err != nil {
+						log.Fatalf("error: %v", err)
+					} else {
+						logResponse(rsp)
+						if rsp.StatusCode == 201 || rsp.StatusCode == 200 {
+							log.Printf("everything is good")
+							return rsp
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func deleteAllEntities(name string, ctx context.Context) *http.Response {
+	reqDeplConf := createDeleteDeploymentConfigRequest(name)
+	logRequest(reqDeplConf)
+	ctx, done := context.WithTimeout(ctx, newSessionAttemptTimeout)
+	defer done()
+	rsp, err := httpClient.Do(reqDeplConf.WithContext(ctx))
+	if err != nil {
+		log.Fatalf("error: %v", err)
+	} else {
+		logResponse(rsp)
+		if rsp.StatusCode == 201 || rsp.StatusCode == 200 {
+			reqService := createDeleteServiceRequest(name)
+			logRequest(reqService)
+			rsp, err := httpClient.Do(reqService.WithContext(ctx))
+			if err != nil {
+				log.Fatalf("error: %v", err)
+			} else {
+				logResponse(rsp)
+				if rsp.StatusCode == 201 || rsp.StatusCode == 200 {
+					reqRoute := createDeleteRouteRequest(name)
+					logRequest(reqRoute)
+					rsp, err := httpClient.Do(reqRoute.WithContext(ctx))
+					if err != nil {
+						log.Fatalf("error: %v", err)
+					} else {
+						logResponse(rsp)
+						if rsp.StatusCode == 201 || rsp.StatusCode == 200 {
+							log.Printf("everything is good")
+							return rsp
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func createDeleteDeploymentConfigRequest(name string) *http.Request {
+	req, _ := http.NewRequest(http.MethodDelete, "https://openshift.netcracker.cloud:8443/oapi/v1/namespaces/tadevelopment/deploymentconfigs/"+name, nil)
+	req = addHeaders(http.MethodDelete, req)
+	return req
+}
+
+func createDeleteServiceRequest(name string) *http.Request {
+	req, _ := http.NewRequest(http.MethodDelete, "https://openshift.netcracker.cloud:8443/api/v1/namespaces/tadevelopment/services/"+name, nil)
+	req = addHeaders(http.MethodDelete, req)
+	return req
+}
+
+func createDeleteRouteRequest(name string) *http.Request {
+	req, _ := http.NewRequest(http.MethodDelete, "https://openshift.netcracker.cloud:8443/apis/route.openshift.io/v1/namespaces/tadevelopment/routes/"+name, nil)
+	req = addHeaders(http.MethodDelete, req)
+	return req
+}
 func getScreenResolution(input string) (string, error) {
 	if input == "" {
 		return "1920x1080x24", nil
