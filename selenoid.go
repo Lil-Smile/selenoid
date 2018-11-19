@@ -32,19 +32,23 @@ import (
 	"github.com/lil-smile/selenoid/upload"
 	appsV1 "github.com/openshift/api/apps/v1"
 	v14 "github.com/openshift/api/route/v1"
-	v12 "github.com/openshift/api/template/v1"
 	//buildv1 "github.com/openshift/client-go/build/clientset/versioned/typed/build/v1"
 	"golang.org/x/net/websocket"
 	"k8s.io/api/apps/v1beta1"
 	k8sv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	v13 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"strconv"
 )
 
-const slash = "/"
+const (
+	slash         = "/"
+	webPort       = 8080
+	vncPort       = 5900
+	clipboardPort = 9090
+	seleniumPort  = 4444
+)
 
 var (
 	httpClient = &http.Client{
@@ -52,8 +56,10 @@ var (
 			return http.ErrUseLastResponse
 		},
 	}
-	num     uint64
-	numLock sync.RWMutex
+	num           uint64
+	numLock       sync.RWMutex
+	sessionId     uint64
+	sessionIdLock sync.RWMutex
 )
 
 type request struct {
@@ -117,28 +123,58 @@ func getSerial() uint64 {
 	return num
 }
 
+func getAndIncSessionId() uint64 {
+	sessionIdLock.Lock()
+	defer sessionIdLock.Unlock()
+	id := sessionId
+	sessionId++
+	return id
+}
+
+func getSessionId() uint64 {
+	sessionIdLock.RLock()
+	defer sessionIdLock.RUnlock()
+	return sessionId
+}
+
 func openshiftCreate(w http.ResponseWriter, r *http.Request) {
-	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	rsp := createAllEntities("ingvar", r.Context())
-	if rsp != nil {
-		log.Printf("response: %v", rsp)
-		rsp.Body.Close()
+	log.Printf("op create")
+	var template struct {
+		Name string `json:"name"`
 	}
-	util.JsonError(w, "result", http.StatusInternalServerError)
-	queue.Drop()
-	return
+	body, err := ioutil.ReadAll(r.Body)
+	err = json.Unmarshal(body, &template)
+	if err == nil {
+		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		rsp := createAllEntities(template.Name, r.Context())
+		if rsp != nil {
+			log.Printf("response: %v", rsp)
+			rsp.Body.Close()
+		}
+		sessionId := getAndIncSessionId()
+		util.JsonError(w, fmt.Sprintf("sessionId:%d", sessionId), http.StatusOK)
+		queue.Drop()
+		return
+	}
 }
 
 func openshiftDelete(w http.ResponseWriter, r *http.Request) {
-	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	rsp := deleteAllEntities("ingvar", r.Context())
-	if rsp != nil {
-		log.Printf("response: %v", rsp)
-		rsp.Body.Close()
+	var template struct {
+		Name string `json:"name"`
 	}
-	util.JsonError(w, "result", http.StatusInternalServerError)
-	queue.Drop()
-	return
+	body, err := ioutil.ReadAll(r.Body)
+	err = json.Unmarshal(body, &template)
+	if err == nil {
+		http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		rsp := deleteAllEntities(template.Name, r.Context())
+		if rsp != nil {
+			log.Printf("response: %v", rsp)
+			rsp.Body.Close()
+		}
+		util.JsonError(w, "result", http.StatusInternalServerError)
+		queue.Drop()
+		return
+	}
 }
 
 func create(w http.ResponseWriter, r *http.Request) {
@@ -155,7 +191,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var browser struct {
-		Caps    session.Caps `json:"desiredCapabilities"`
+		Caps session.Caps `json:"desiredCapabilities"`
 		W3CCaps struct {
 			Caps session.Caps `json:"alwaysMatch"`
 		} `json:"capabilities"`
@@ -421,8 +457,8 @@ func createRequestService(placeholder string) *http.Request {
 	return req
 }
 
-func createRequestRoute(placeholder string) *http.Request {
-	body := createRouteBody(placeholder)
+func createRequestRoute(routeName, serviceName string, port int32) *http.Request {
+	body := createRouteBody(routeName, serviceName, port)
 	jsonBody, _ := json.Marshal(body)
 	req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/apis/route.openshift.io/v1/namespaces/tadevelopment/routes", bytes.NewReader(jsonBody))
 	req.Close = true
@@ -443,15 +479,6 @@ func createRequestDeploymentConfig(placeholder string) *http.Request {
 	body := createDeploymentConfigBody(placeholder)
 	jsonBody, _ := json.Marshal(body)
 	req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/oapi/v1/namespaces/tadevelopment/deploymentconfigs", bytes.NewReader(jsonBody))
-	req.Close = true
-	req = addHeaders(http.MethodPost, req)
-	return req
-}
-
-func createRequestTemplate() *http.Request {
-	body := createTemplateBody()
-	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/apis/template.openshift.io/v1/namespaces/tadevelopment/processedtemplates", bytes.NewReader(jsonBody))
 	req.Close = true
 	req = addHeaders(http.MethodPost, req)
 	return req
@@ -501,23 +528,25 @@ func createServiceBody(placeholder string) k8sv1.Service {
 	service.Name = placeholder
 	service.Spec = k8sv1.ServiceSpec{}
 	service.Spec.Ports = []k8sv1.ServicePort{}
-	service.Spec.Ports = append(service.Spec.Ports, k8sv1.ServicePort{Name: "web", Port: 8080, Protocol: "TCP"})
-	service.Spec.Ports = append(service.Spec.Ports, k8sv1.ServicePort{Name: "vnc", Port: 5900, Protocol: "TCP"})
+	service.Spec.Ports = append(service.Spec.Ports, k8sv1.ServicePort{Name: "web", Port: webPort, Protocol: "TCP"})
+	service.Spec.Ports = append(service.Spec.Ports, k8sv1.ServicePort{Name: "vnc", Port: vncPort, Protocol: "TCP"})
+	service.Spec.Ports = append(service.Spec.Ports, k8sv1.ServicePort{Name: "clipboard", Port: clipboardPort, Protocol: "TCP"})
+	service.Spec.Ports = append(service.Spec.Ports, k8sv1.ServicePort{Name: "selenium", Port: seleniumPort, Protocol: "TCP"})
 	service.Spec.Selector = make(map[string]string)
 	service.Spec.Selector["name"] = placeholder
 	service.Spec.Type = "NodePort"
 	return service
 }
 
-func createRouteBody(placeholder string) v14.Route {
+func createRouteBody(routName, serviceName string, port int32) v14.Route {
 	route := v14.Route{}
 	route.Kind = "Route"
 	route.APIVersion = "route.openshift.io/v1"
-	route.Name = placeholder
+	route.Name = routName
 	route.Spec = v14.RouteSpec{}
-	route.Spec.Host = placeholder + ".openshift.netcracker.cloud"
-	route.Spec.Port = &v14.RoutePort{TargetPort: intstr.IntOrString{StrVal: "web", Type: intstr.String}}
-	route.Spec.To = v14.RouteTargetReference{Kind: "Service", Name: placeholder}
+	route.Spec.Host = routName + ".openshift.netcracker.cloud"
+	route.Spec.Port = &v14.RoutePort{TargetPort: intstr.IntOrString{Type: intstr.Int, IntVal: port}}
+	route.Spec.To = v14.RouteTargetReference{Kind: "Service", Name: serviceName}
 	return route
 }
 
@@ -553,28 +582,12 @@ func createDeploymentConfigBody(placeholder string) appsV1.DeploymentConfig {
 	limits["cpu"] = resource.MustParse("100m")
 	limits["memory"] = resource.MustParse("300Mi")
 	container := k8sv1.Container{Name: placeholder, Image: "artifactorycn.netcracker.com:17028/atp/browsers/vnc-chrome:69.0", ImagePullPolicy: "Always", Resources: k8sv1.ResourceRequirements{Limits: limits, Requests: limits}}
-	container.Ports = []k8sv1.ContainerPort{{ContainerPort: 8080, Name: "web", Protocol: "TCP"}}
-	container.Ports = append(container.Ports, k8sv1.ContainerPort{ContainerPort: 5900, Name: "vnc", Protocol: "TCP"})
+	container.Ports = []k8sv1.ContainerPort{{ContainerPort: webPort, Name: "web", Protocol: "TCP"}}
+	container.Ports = append(container.Ports, k8sv1.ContainerPort{ContainerPort: vncPort, Name: "vnc", Protocol: "TCP"})
+	container.Ports = append(container.Ports, k8sv1.ContainerPort{ContainerPort: clipboardPort, Name: "clipboard", Protocol: "TCP"})
+	container.Ports = append(container.Ports, k8sv1.ContainerPort{ContainerPort: seleniumPort, Name: "selenium", Protocol: "TCP"})
 	config.Spec.Template.Spec.Containers = []k8sv1.Container{container}
 	return config
-}
-
-func createTemplateBody() v12.Template {
-	placeholder := "ingvar"
-	template := v12.Template{}
-	template.APIVersion = "template.openshift.io/v1"
-	template.Kind = "Template"
-	template.Objects = []runtime.RawExtension{}
-	config := createDeploymentConfigBody(placeholder)
-	configBytes, _ := json.Marshal(config)
-	template.Objects = append(template.Objects, runtime.RawExtension{Raw: configBytes})
-	service := createServiceBody(placeholder)
-	serviceBytes, _ := json.Marshal(service)
-	template.Objects = append(template.Objects, runtime.RawExtension{Raw: serviceBytes})
-	route := createRouteBody(placeholder)
-	routeBytes, _ := json.Marshal(route)
-	template.Objects = append(template.Objects, runtime.RawExtension{Raw: routeBytes})
-	return template
 }
 
 func createAllEntities(placeholder string, ctx context.Context) *http.Response {
@@ -596,7 +609,7 @@ func createAllEntities(placeholder string, ctx context.Context) *http.Response {
 			} else {
 				logResponse(rsp)
 				if rsp.StatusCode == 201 || rsp.StatusCode == 200 {
-					reqRoute := createRequestRoute(placeholder)
+					reqRoute := createRequestRoute(placeholder+"-web", placeholder, webPort)
 					logRequest(reqRoute)
 					rsp, err := httpClient.Do(reqRoute.WithContext(ctx))
 					if err != nil {
@@ -604,8 +617,36 @@ func createAllEntities(placeholder string, ctx context.Context) *http.Response {
 					} else {
 						logResponse(rsp)
 						if rsp.StatusCode == 201 || rsp.StatusCode == 200 {
-							log.Printf("everything is good")
-							return rsp
+							reqRoute := createRequestRoute(placeholder+"-vnc", placeholder, vncPort)
+							logRequest(reqRoute)
+							rsp, err := httpClient.Do(reqRoute.WithContext(ctx))
+							if err != nil {
+								log.Fatalf("error: %v", err)
+							} else {
+								logResponse(rsp)
+								if rsp.StatusCode == 201 || rsp.StatusCode == 200 {
+									reqRoute := createRequestRoute(placeholder+"-clipboard", placeholder, clipboardPort)
+									logRequest(reqRoute)
+									rsp, err := httpClient.Do(reqRoute.WithContext(ctx))
+									if err != nil {
+										log.Fatalf("error: %v", err)
+									} else {
+										logResponse(rsp)
+										if rsp.StatusCode == 201 || rsp.StatusCode == 200 {
+											reqRoute := createRequestRoute(placeholder+"-selenium", placeholder, seleniumPort)
+											logRequest(reqRoute)
+											rsp, err := httpClient.Do(reqRoute.WithContext(ctx))
+											if err != nil {
+												log.Fatalf("error: %v", err)
+											} else {
+												logResponse(rsp)
+												log.Printf("everything is good")
+												return rsp
+											}
+										}
+									}
+								}
+							}
 						}
 					}
 				}
@@ -634,7 +675,7 @@ func deleteAllEntities(name string, ctx context.Context) *http.Response {
 			} else {
 				logResponse(rsp)
 				if rsp.StatusCode == 201 || rsp.StatusCode == 200 {
-					reqRoute := createDeleteRouteRequest(name)
+					reqRoute := createDeleteRouteRequest(name + "-web")
 					logRequest(reqRoute)
 					rsp, err := httpClient.Do(reqRoute.WithContext(ctx))
 					if err != nil {
@@ -642,8 +683,36 @@ func deleteAllEntities(name string, ctx context.Context) *http.Response {
 					} else {
 						logResponse(rsp)
 						if rsp.StatusCode == 201 || rsp.StatusCode == 200 {
-							log.Printf("everything is good")
-							return rsp
+							reqRoute := createDeleteRouteRequest(name + "-vnc")
+							logRequest(reqRoute)
+							rsp, err := httpClient.Do(reqRoute.WithContext(ctx))
+							if err != nil {
+								log.Fatalf("error: %v", err)
+							} else {
+								logResponse(rsp)
+								if rsp.StatusCode == 201 || rsp.StatusCode == 200 {
+									reqRoute := createDeleteRouteRequest(name + "-clipboard")
+									logRequest(reqRoute)
+									rsp, err := httpClient.Do(reqRoute.WithContext(ctx))
+									if err != nil {
+										log.Fatalf("error: %v", err)
+									} else {
+										logResponse(rsp)
+										if rsp.StatusCode == 201 || rsp.StatusCode == 200 {
+											reqRoute := createDeleteRouteRequest(name + "-selenium")
+											logRequest(reqRoute)
+											rsp, err := httpClient.Do(reqRoute.WithContext(ctx))
+											if err != nil {
+												log.Fatalf("error: %v", err)
+											} else {
+												logResponse(rsp)
+												log.Printf("everything is good")
+												return rsp
+											}
+										}
+									}
+								}
+							}
 						}
 					}
 				}
@@ -654,7 +723,11 @@ func deleteAllEntities(name string, ctx context.Context) *http.Response {
 }
 
 func createDeleteDeploymentConfigRequest(name string) *http.Request {
-	req, _ := http.NewRequest(http.MethodDelete, "https://openshift.netcracker.cloud:8443/oapi/v1/namespaces/tadevelopment/deploymentconfigs/"+name, nil)
+	opt := v13.DeleteOptions{}
+	foreground := v13.DeletePropagationForeground
+	opt.PropagationPolicy = &foreground
+	jsonBody, _ := json.Marshal(opt)
+	req, _ := http.NewRequest(http.MethodDelete, "https://openshift.netcracker.cloud:8443/oapi/v1/namespaces/tadevelopment/deploymentconfigs/"+name, bytes.NewReader(jsonBody))
 	req = addHeaders(http.MethodDelete, req)
 	return req
 }
@@ -734,6 +807,35 @@ func generateRandomFileName(extension string) string {
 	return "selenoid" + hex.EncodeToString(randBytes) + extension
 }
 
+func openshiftProxy(w http.ResponseWriter, r *http.Request) {
+	var template struct {
+		Name string `json:"name"`
+	}
+	body, err := ioutil.ReadAll(r.Body)
+	err = json.Unmarshal(body, &template)
+	if err != nil {
+		log.Fatalf("error:%v", err)
+	}
+	u := "http://" + template.Name + "-selenium.openshift.netcracker.cloud"
+	req, err := http.NewRequest(http.MethodPost, u, nil)
+	if err != nil {
+		log.Fatalf("error:%v", err)
+	}
+	req.Close = true
+	logRequest(req)
+	ctx, done := context.WithTimeout(r.Context(), newSessionAttemptTimeout)
+	defer done()
+	rsp, err := httpClient.Do(req.WithContext(ctx))
+	logResponse(rsp)
+	if rsp != nil {
+		log.Printf("response: %v", rsp)
+		rsp.Body.Close()
+	}
+	util.JsonError(w, "result", http.StatusOK)
+	queue.Drop()
+	return
+}
+
 func proxy(w http.ResponseWriter, r *http.Request) {
 	done := make(chan func())
 	go func(w http.ResponseWriter, r *http.Request) {
@@ -744,6 +846,7 @@ func proxy(w http.ResponseWriter, r *http.Request) {
 		(&httputil.ReverseProxy{
 			Director: func(r *http.Request) {
 				requestId := serial()
+				log.Printf("path: %s", r.URL.Path)
 				fragments := strings.Split(r.URL.Path, slash)
 				id := fragments[2]
 				sess, ok := sessions.Get(id)

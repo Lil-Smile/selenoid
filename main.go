@@ -247,6 +247,7 @@ func mux() http.Handler {
 	mux.HandleFunc("/session/openshiftCreate", queue.Try(queue.Check(queue.Protect(post(openshiftCreate)))))
 	mux.HandleFunc("/session/openshiftDelete", queue.Try(queue.Check(queue.Protect(post(openshiftDelete)))))
 	mux.HandleFunc("/session/", proxy)
+	mux.HandleFunc("/session/openshift/", openshiftProxy)
 	mux.HandleFunc("/status", status)
 	return mux
 }
