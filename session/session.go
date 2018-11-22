@@ -84,6 +84,7 @@ type Session struct {
 	Timeout   time.Duration
 	TimeoutCh chan struct{}
 	Lock      sync.Mutex
+	Name      string
 }
 
 // HostPort - hold host-port values for all forwarded ports

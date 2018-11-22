@@ -152,6 +152,9 @@ func openshiftCreate(w http.ResponseWriter, r *http.Request) {
 			rsp.Body.Close()
 		}
 		sessionId := getAndIncSessionId()
+		sess := &session.Session{}
+		sess.Name = template.Name
+		sessions.Put(strconv.Itoa(int(sessionId)), sess)
 		util.JsonError(w, fmt.Sprintf("sessionId:%d", sessionId), http.StatusOK)
 		queue.Drop()
 		return
@@ -581,7 +584,9 @@ func createDeploymentConfigBody(placeholder string) appsV1.DeploymentConfig {
 	limits := make(k8sv1.ResourceList)
 	limits["cpu"] = resource.MustParse("100m")
 	limits["memory"] = resource.MustParse("300Mi")
-	container := k8sv1.Container{Name: placeholder, Image: "artifactorycn.netcracker.com:17028/atp/browsers/vnc-chrome:69.0", ImagePullPolicy: "Always", Resources: k8sv1.ResourceRequirements{Limits: limits, Requests: limits}}
+	image := "artifactorycn.netcracker.com:17029/atp/browsers/vnc-chrome-69:v1"
+	//oldImage := "artifactorycn.netcracker.com:17028/atp/browsers/vnc-chrome:69.0"
+	container := k8sv1.Container{Name: placeholder, Image: image, ImagePullPolicy: "Always", Resources: k8sv1.ResourceRequirements{Limits: limits, Requests: limits}}
 	container.Ports = []k8sv1.ContainerPort{{ContainerPort: webPort, Name: "web", Protocol: "TCP"}}
 	container.Ports = append(container.Ports, k8sv1.ContainerPort{ContainerPort: vncPort, Name: "vnc", Protocol: "TCP"})
 	container.Ports = append(container.Ports, k8sv1.ContainerPort{ContainerPort: clipboardPort, Name: "clipboard", Protocol: "TCP"})
