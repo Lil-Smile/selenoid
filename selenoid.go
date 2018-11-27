@@ -194,7 +194,7 @@ func create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var browser struct {
-		Caps session.Caps `json:"desiredCapabilities"`
+		Caps    session.Caps `json:"desiredCapabilities"`
 		W3CCaps struct {
 			Caps session.Caps `json:"alwaysMatch"`
 		} `json:"capabilities"`
@@ -473,6 +473,34 @@ func createRequestBuild() *http.Request {
 	body := creteBuildBody()
 	jsonBody, _ := json.Marshal(body)
 	req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/apis/build.openshift.io/v1/namespaces/tadevelopment/builds", bytes.NewReader(jsonBody))
+	req.Close = true
+	req = addHeaders(http.MethodPost, req)
+	return req
+}
+
+func createPodBody(placeholder string) *k8sv1.Pod {
+	pod := k8sv1.Pod{}
+	pod.Kind = "Pod"
+	pod.APIVersion = "v1"
+	pod.Name = placeholder
+	meta := v13.ObjectMeta{Name: placeholder}
+	meta.Labels = make(map[string]string)
+	meta.Labels["app"] = placeholder
+	meta.Labels["deploymentconfig"] = placeholder
+	meta.Labels["name"] = placeholder
+	pod.ObjectMeta = meta
+	pod.Spec = k8sv1.PodSpec{}
+	limits := make(k8sv1.ResourceList)
+	limits["cpu"] = resource.MustParse("500m")
+	limits["memory"] = resource.MustParse("128Mi")
+	pod.Spec.Containers = []k8sv1.Container{{Name: "igor", Image: "artifactorycn.netcracker.com:17028/atp/browsers/vnc-chrome:69.0", Resources: k8sv1.ResourceRequirements{Limits: limits, Requests: limits}}}
+	return &pod
+}
+
+func createRequestPod(placeholder string) *http.Request {
+	body := createPodBody(placeholder)
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost, "https://openshift.netcracker.cloud:8443/api/v1/namespaces/tadevelopment/pods", bytes.NewReader(jsonBody))
 	req.Close = true
 	req = addHeaders(http.MethodPost, req)
 	return req
